@@ -3,45 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Finix</title>
-
+    <title>Financeiro Pessoal</title>
     <meta name="theme-color" content="#1a1a1a"/>
-    
     <link rel="manifest" href="manifest.json">
-
     <link rel="apple-touch-icon" href="icons/icon-192.png">
-
     <style>
         :root {
-            --bg-color: #1a1a1a;
-            --surface-color: #2c2c2c;
-            --primary-color: #4a90e2;
-            --text-color: #f0f0f0;
-            --income-color: #50e3c2;
-            --expense-color: #e3505f;
-            --border-color: #444;
+            --bg-color: #121212;
+            --surface-color: #1e1e1e;
+            --primary-color: #6200ee;
+            --secondary-color: #03dac6;
+            --text-color: #e0e0e0;
+            --income-color: #00c853;
+            --expense-color: #d50000;
+            --border-color: #333;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: var(--bg-color); color: var(--text-color); line-height: 1.6; }
-        main { max-width: 800px; margin: 20px auto; padding: 0 15px; }
-        header { text-align: center; margin-bottom: 25px; padding-bottom: 15px; border-bottom: 1px solid var(--border-color); }
-        h1 { color: var(--primary-color); font-weight: 500; }
-        .card { background-color: var(--surface-color); border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+        html { overflow-y: scroll; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: var(--bg-color); color: var(--text-color); line-height: 1.6; padding-bottom: 80px; /* Space for bottom nav */}
+        main { max-width: 800px; margin: 0 auto; padding: 15px; }
+        .card { background-color: var(--surface-color); border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid var(--border-color); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
         .form-group { margin-bottom: 15px; }
-        .form-group label { display: block; margin-bottom: 5px; font-weight: 500; }
-        .form-group input { width: 100%; padding: 10px; background-color: var(--bg-color); border: 1px solid var(--border-color); border-radius: 5px; color: var(--text-color); font-size: 1rem; }
-        input[type="date"]:in-range::-webkit-datetime-edit-year-field, 
-        input[type="date"]:in-range::-webkit-datetime-edit-month-field, 
+        .form-group label { display: block; margin-bottom: 8px; font-weight: 500; color: #bbb; }
+        .form-group input { width: 100%; padding: 12px; background-color: #333; border: 1px solid #444; border-radius: 8px; color: var(--text-color); font-size: 1rem; }
+        input[type="date"]:in-range::-webkit-datetime-edit-year-field,
+        input[type="date"]:in-range::-webkit-datetime-edit-month-field,
         input[type="date"]:in-range::-webkit-datetime-edit-day-field { color: var(--text-color) !important; }
-        button { padding: 10px 20px; border: none; border-radius: 5px; background-color: var(--primary-color); color: #fff; font-size: 1rem; cursor: pointer; transition: background-color 0.2s; }
-        button:hover { background-color: #5a9ee8; }
+        button { padding: 12px 24px; border: none; border-radius: 8px; background-color: var(--primary-color); color: #fff; font-size: 1rem; cursor: pointer; transition: background-color 0.2s; font-weight: bold; }
+        button:hover { background-color: #7e3ff2; }
         .button-secondary { background-color: transparent; border: 1px solid var(--primary-color); color: var(--primary-color); }
-        .button-secondary:hover { background-color: var(--primary-color); color: #fff; }
-        .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
-        .view-switcher { display: flex; justify-content: center; margin-bottom: 20px; background-color: var(--surface-color); border-radius: 8px; padding: 5px; }
-        .view-switcher button { flex-grow: 1; background-color: transparent; color: var(--text-color); opacity: 0.7; }
-        .view-switcher button.active { background-color: var(--primary-color); opacity: 1; }
-        .transaction-list { list-style: none; }
+        .button-secondary:hover { background-color: rgba(98, 0, 238, 0.2); }
+        /* --- Nova UI --- */
+        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background-color: var(--surface-color); display: flex; justify-content: space-around; padding: 10px 0; box-shadow: 0 -2px 10px rgba(0,0,0,0.5); border-top: 1px solid var(--border-color); }
+        .nav-button { background: none; border: none; color: #aaa; display: flex; flex-direction: column; align-items: center; font-size: 0.75rem; padding: 5px; flex-grow: 1; }
+        .nav-button svg { width: 24px; height: 24px; margin-bottom: 4px; }
+        .fab { position: fixed; bottom: 85px; right: 25px; width: 56px; height: 56px; background-color: var(--secondary-color); border-radius: 50%; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.4); color: #000; font-size: 2rem; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow-y: auto; background-color: rgba(0,0,0,0.8); backdrop-filter: blur(5px); animation: fadeIn 0.3s ease; }
+        .modal-content { background-color: var(--surface-color); margin: 0; width: 100%; min-height: 100%; border-radius: 0; padding: 20px; padding-top: 60px; }
+        .modal-header { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background-color: var(--surface-color); z-index: 1001; }
+        .modal-title { font-size: 1.2rem; font-weight: 500; }
+        .close-button { background: none; border: none; color: #aaa; font-size: 2rem; cursor: pointer; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        /* --- Componentes --- */
+        .calendar-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .calendar-controls h2 { color: var(--secondary-color); }
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+        .calendar-header { text-align: center; font-size: 0.8em; opacity: 0.7; padding-bottom: 10px; }
+        .calendar-day { background-color: #2a2a2a; border-radius: 8px; min-height: 80px; padding: 5px; font-size: 0.8em; display: flex; flex-direction: column; }
+        .calendar-day.other-month { opacity: 0.4; }
+        .day-number { font-weight: bold; }
+        .day-summary { margin-top: auto; font-size: 0.9em; text-align: right; }
+        .transaction-list { list-style: none; padding: 0; }
         .transaction-item { display: flex; justify-content: space-between; padding: 15px; border-bottom: 1px solid var(--border-color); align-items: center; flex-wrap: wrap; gap: 10px; }
         .transaction-item:last-child { border-bottom: none; }
         .transaction-details { flex-grow: 1; }
@@ -52,59 +64,29 @@
         .transaction-balance { font-size: 0.8em; opacity: 0.7; text-align: right; width: 100%; margin-top: 5px; }
         .income { color: var(--income-color); }
         .expense { color: var(--expense-color); }
-        .delete-transaction-btn { background-color: transparent; color: #888; border: none; font-size: 1.5rem; line-height: 1; padding: 0 5px; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; }
-        .delete-transaction-btn:hover { background-color: var(--expense-color); color: white; }
-        .calendar-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
-        .calendar-header { text-align: center; font-size: 0.8em; opacity: 0.7; padding-bottom: 10px; }
-        .calendar-day { background-color: #333; border-radius: 5px; min-height: 80px; padding: 5px; font-size: 0.8em; display: flex; flex-direction: column; }
-        .calendar-day.other-month { opacity: 0.4; }
-        .day-number { font-weight: bold; }
-        .day-summary { margin-top: auto; font-size: 0.9em; text-align: right; }
-        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.7); }
-        .modal-content { position: relative; background-color: var(--surface-color); margin: 10% auto; padding: 20px; border: 1px solid var(--border-color); width: 90%; max-width: 500px; border-radius: 8px; }
-        .close-button { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
         .delete-btn { background-color: transparent; border: 1px solid var(--expense-color); color: var(--expense-color); padding: 2px 8px; border-radius: 4px; font-size: 0.8em; margin-left: 10px; line-height: 1.2; }
-        .recurring-item-details { flex-grow: 1; }
-        .recurring-item-end-date { font-size: 0.8em; opacity: 0.7; }
     </style>
 </head>
 <body>
 
-    <main>
-        <header><h1>Finix</h1><p>Seu controle financeiro, sempre com você.</p></header>
-        <div class="card" id="add-transaction-card">
-            <h2>Nova Transação</h2>
-            <form id="transaction-form">
-                <div class="form-group"><label for="date">Data</label><input type="date" id="date" required></div>
-                <div class="form-group"><label for="description">Descrição</label><input type="text" id="description" placeholder="Ex: Salário, Almoço" required></div>
-                <div class="form-group"><label for="amount">Valor (use - para despesas)</label><input type="number" step="0.01" id="amount" placeholder="Ex: 1500.00 ou -25.50" required></div>
-                <button type="submit">Adicionar</button>
-            </form>
+    <main id="main-content">
+        </main>
+
+    <button class="fab" id="fab-add-tx" title="Adicionar Transação">+</button>
+
+    <footer class="bottom-nav">
+        <button class="nav-button" id="nav-flow" title="Fluxo de Caixa">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 16 16"><path d="M1 2.5a.5.5 0 0 1 .5-.5h13a.5.5 0 0 1 0 1h-13a.5.5 0 0 1-.5-.5zm0 5a.5.5 0 0 1 .5-.5h13a.5.5 0 0 1 0 1h-13a.5.5 0 0 1-.5-.5zm0 5a.5.5 0 0 1 .5-.5h13a.5.5 0 0 1 0 1h-13a.5.5 0 0 1-.5-.5z"/></svg>
+            Fluxo
+        </button>
+        <button class="nav-button" id="nav-data" title="Importar/Exportar Dados">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 16 16"><path d="M8.5 1.5A1.5 1.5 0 0 0 7 0H1.5A1.5 1.5 0 0 0 0 1.5v13A1.5 1.5 0 0 0 1.5 16h13a1.5 1.5 0 0 0 1.5-1.5v-5.5A1.5 1.5 0 0 0 14.5 7.5h-5A1.5 1.5 0 0 0 8 9v5.5a.5.5 0 0 1-1 0V9a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5v5.5a.5.5 0 0 1-1 0V9.5a.5.5 0 0 1-.5-.5h-5a.5.5 0 0 1-.5.5v5a.5.5 0 0 1-1 0v-5A1.5 1.5 0 0 0 6.5 8h-5A1.5 1.5 0 0 0 0 9.5v5A1.5 1.5 0 0 0 1.5 16h13a.5.5 0 0 0 .5-.5v-13a.5.5 0 0 0-.5-.5H7.5A.5.5 0 0 1 7 2V1.5z"/></svg>
+            Dados
+        </button>
+    </footer>
+
+    <div id="modal-container">
         </div>
-        <div class="actions">
-            <button id="btn-recurring">Gastos Recorrentes</button>
-            <button id="btn-export" class="button-secondary">Exportar Dados (JSON)</button>
-        </div>
-        <div class="card" id="filter-card"><div class="form-group"><label for="filter">Filtrar por descrição</label><input type="search" id="filter" placeholder="Ex: Supermercado, Salário..."></div></div>
-        <div class="view-switcher"><button id="btn-flow-view" class="active">Fluxo Contínuo</button><button id="btn-calendar-view">Calendário</button></div>
-        
-        <div id="view-container"></div>
-    </main>
-    
-    <div id="recurring-modal" class="modal">
-        <div class="modal-content">
-            <span class="close-button">&times;</span><h2>Gastos Recorrentes</h2><p>Adicione despesas que se repetem todo mês.</p>
-            <div id="recurring-list"></div>
-            <form id="recurring-form">
-                 <div class="form-group"><label for="recurring-description">Descrição</label><input type="text" id="recurring-description" placeholder="Ex: Aluguel, Netflix" required></div>
-                 <div class="form-group"><label for="recurring-amount">Valor (sempre negativo)</label><input type="number" step="0.01" id="recurring-amount" placeholder="Ex: -1200.00" required></div>
-                 <div class="form-group"><label for="recurring-day">Dia do Mês para cobrança</label><input type="number" id="recurring-day" min="1" max="31" value="1" required></div>
-                 <div class="form-group"><label for="recurring-end-date">Data Final (Opcional)</label><input type="date" id="recurring-end-date"></div>
-                 <button type="submit">Adicionar Gasto Recorrente</button>
-            </form>
-        </div>
-    </div>
 
     <script src="main.js"></script>
 </body>

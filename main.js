@@ -13,67 +13,28 @@
     'use strict';
 
     const App = {
-        /**
-         * @property {object} state - A "única fonte da verdade". Todos os dados que a aplicação utiliza vivem aqui.
-         */
         state: {
             transactions: [],
             recurringExpenses: [],
-            currentView: 'flow',
             calendarDate: new Date(),
-            filterQuery: ''
+            filterQuery: '',
+            activeModal: null
         },
-        
-        /**
-         * @property {object} config - Constantes e configurações da aplicação.
-         */
-        config: {
-            storageKey: 'financePWAData_v5'
-        },
-
-        /**
-         * @namespace data
-         * @description Módulo responsável pela persistência dos dados (leitura e escrita no localStorage).
-         */
+        config: { storageKey: 'financePWAData_v6' },
         data: {
-            /**
-             * Salva o estado atual da aplicação no localStorage.
-             */
-            save() {
-                localStorage.setItem(App.config.storageKey, JSON.stringify(App.state));
-            },
-            /**
-             * Carrega os dados do localStorage para o estado da aplicação.
-             */
+            save() { localStorage.setItem(App.config.storageKey, JSON.stringify(App.state)); },
             load() {
                 const data = localStorage.getItem(App.config.storageKey);
                 if (!data) return;
-                
                 const parsedData = JSON.parse(data);
-                // Garante que as strings de data sejam convertidas de volta para objetos Date.
+                // BUG FIX: Garante que TODAS as datas sejam restauradas como objetos Date
                 if (parsedData.transactions) parsedData.transactions.forEach(t => t.date = new Date(t.date));
-                
+                if (parsedData.recurringExpenses) parsedData.recurringExpenses.forEach(r => { if(r.lastApplied) r.lastApplied = new Date(r.lastApplied); });
                 App.state = { ...App.state, ...parsedData };
             }
         },
-
-        /**
-         * @namespace logic
-         * @description Contém a lógica de negócio "pura", ou seja, funções que manipulam dados sem interagir com a tela.
-         */
         logic: {
-            /**
-             * Ordena as transações da mais recente para a mais antiga.
-             * @param {Array} transactions - A lista de transações.
-             * @returns {Array} A lista de transações ordenada.
-             */
             sortTransactions: (transactions) => transactions.sort((a, b) => new Date(b.date) - new Date(a.date)),
-            
-            /**
-             * Verifica e aplica despesas recorrentes que estão pendentes até uma data específica.
-             * @param {Date} [applyUntilDate=new Date()] - A data limite para aplicar as despesas.
-             * @returns {boolean} - Retorna true se alguma nova transação foi adicionada.
-             */
             applyRecurringExpenses(applyUntilDate = new Date()) {
                 let needsUpdate = false;
                 App.state.recurringExpenses.forEach(expense => {
@@ -86,7 +47,6 @@
                         firstCheckDate = new Date(Math.min(new Date(), earliestTxDate));
                     }
                     firstCheckDate.setDate(1);
-
                     while (firstCheckDate <= applyUntilDate) {
                         const transactionDate = new Date(firstCheckDate.getFullYear(), firstCheckDate.getMonth(), expense.day, 12, 0, 0);
                         if (expense.endDate && transactionDate > new Date(expense.endDate + 'T23:59:59-03:00')) {
@@ -104,65 +64,79 @@
                 if (needsUpdate) App.logic.sortTransactions(App.state.transactions);
                 return needsUpdate;
             },
-
-            /**
-             * Formata um número para a moeda local (BRL).
-             * @param {number} value - O valor a ser formatado.
-             * @returns {string} - O valor formatado como moeda.
-             */
             formatCurrency: (value) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
         },
-        
-        /**
-         * @namespace ui
-         * @description Módulo que controla todas as interações com o DOM (a interface do usuário).
-         */
         ui: {
             elements: {},
-            
-            /**
-             * Mapeia os elementos HTML para um objeto para acesso rápido, evitando múltiplas chamadas a `getElementById`.
-             */
             cacheDOMElements() {
                 this.elements = {
-                    dateInput: document.getElementById('date'), viewContainer: document.getElementById('view-container'), btnFlowView: document.getElementById('btn-flow-view'),
-                    btnCalendarView: document.getElementById('btn-calendar-view'), recurringModal: document.getElementById('recurring-modal'), recurringForm: document.getElementById('recurring-form'),
-                    recurringList: document.getElementById('recurring-list'), filterCard: document.getElementById('filter-card'), filterInput: document.getElementById('filter'),
-                    transactionForm: document.getElementById('transaction-form'), exportButton: document.getElementById('btn-export'), recurringButton: document.getElementById('btn-recurring'),
-                    modalCloseButton: document.querySelector('.close-button'),
+                    mainContent: document.getElementById('main-content'),
+                    modalContainer: document.getElementById('modal-container'),
+                    fabAddTx: document.getElementById('fab-add-tx'),
+                    navFlow: document.getElementById('nav-flow'),
+                    navData: document.getElementById('nav-data'),
                 };
             },
-
-            /**
-             * @namespace templates
-             * @description Funções que geram o HTML para partes da UI, mantendo o HTML fora da lógica de renderização.
-             */
             templates: {
-                transactionItem(t, balance) { return `<div class="transaction-details"><div class="transaction-description">${t.description} ${t.recurringId ? '🔁' : ''}</div><div class="transaction-date">${t.date.toLocaleDateString('pt-BR')}</div></div><div class="transaction-amount-wrapper"><div class="transaction-amount"><span class="${t.amount > 0 ? 'income' : 'expense'}">${App.logic.formatCurrency(t.amount)}</span><div class="transaction-balance">Saldo: ${App.logic.formatCurrency(balance)}</div></div><button class="delete-transaction-btn" data-id="${t.id}" title="Remover transação">&times;</button></div>`; },
-                recurringItem(exp) { const endDateText = exp.endDate ? `Termina em ${new Date(exp.endDate + 'T00:00:00-03:00').toLocaleDateString('pt-BR')}` : ''; return `<div class="recurring-item-details"><span>${exp.description} (${App.logic.formatCurrency(exp.amount)}) - Dia ${exp.day}</span><div class="recurring-item-end-date">${endDateText}</div></div><button class="delete-btn" data-id="${exp.id}">Remover</button>`;},
+                modal(id, title, content) {
+                    return `
+                        <div class="modal" id="${id}">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h2 class="modal-title">${title}</h2>
+                                    <button class="close-button" data-modal-id="${id}">&times;</button>
+                                </div>
+                                ${content}
+                            </div>
+                        </div>`;
+                },
+                addTransactionModal() {
+                    return `
+                        <form id="transaction-form" style="padding-top: 20px;">
+                            <div class="form-group"><label for="date">Data</label><input type="date" id="date" required></div>
+                            <div class="form-group"><label for="description">Descrição</label><input type="text" id="description" placeholder="Ex: Salário, Almoço" required></div>
+                            <div class="form-group"><label for="amount">Valor (use - para despesas)</label><input type="number" step="0.01" id="amount" placeholder="Ex: 1500.00 ou -25.50" required></div>
+                            <button type="submit">Adicionar</button>
+                        </form>`;
+                },
+                flowModal() {
+                    return `
+                        <div id="filter-card" class="card" style="margin-top:20px;"><div class="form-group"><label for="filter">Filtrar por descrição</label><input type="search" id="filter" placeholder="Ex: Supermercado, Salário..."></div></div>
+                        <div id="flow-list-container"></div>`;
+                },
+                dataModal() {
+                    return `
+                        <div style="padding-top: 20px;">
+                            <div class="card">
+                                <h3>Exportar Dados</h3>
+                                <p>Salve um backup de todos os seus dados em um arquivo JSON.</p>
+                                <button id="btn-export">Exportar JSON</button>
+                            </div>
+                            <div class="card">
+                                <h3>Importar Dados</h3>
+                                <p style="color: var(--expense-color);">Atenção: A importação irá sobrescrever todos os dados existentes.</p>
+                                <button id="btn-import" class="button-secondary">Importar JSON</button>
+                                <input type="file" id="import-file-input" accept=".json" style="display: none;">
+                            </div>
+                            <div class="card">
+                                <h3>Gastos Recorrentes</h3>
+                                <p>Gerencie despesas que se repetem todo mês.</p>
+                                <div id="recurring-list"></div>
+                                <form id="recurring-form" style="margin-top: 20px;">
+                                    <div class="form-group"><label for="recurring-description">Nova Despesa Recorrente</label><input type="text" id="recurring-description" placeholder="Ex: Aluguel" required></div>
+                                    <div class="form-group"><label for="recurring-amount">Valor</label><input type="number" step="0.01" id="recurring-amount" placeholder="Ex: -1200.00" required></div>
+                                    <div class="form-group"><label for="recurring-day">Dia do Mês</label><input type="number" id="recurring-day" min="1" max="31" value="1" required></div>
+                                    <div class="form-group"><label for="recurring-end-date">Data Final (Opcional)</label><input type="date" id="recurring-end-date"></div>
+                                    <button type="submit">Adicionar</button>
+                                </form>
+                            </div>
+                        </div>`;
+                },
+                transactionItem: (t, balance) => `...`, // Re-used inside renderFlowList
+                recurringItem: (exp) => `...`, // Re-used inside renderRecurringList
             },
-
-            /**
-             * Renderiza a visualização de fluxo contínuo.
-             */
-            renderFlowView() {
-                const { viewContainer } = this.elements;
-                viewContainer.innerHTML = '';
-                const list = document.createElement('ul'); list.className = 'transaction-list card';
-                let balance = 0;
-                const sortedForBalance = [...App.state.transactions].sort((a, b) => a.date - b.date);
-                const balanceMap = new Map(); sortedForBalance.forEach(t => { balance += t.amount; balanceMap.set(t.id, balance); });
-                const filteredTransactions = App.state.filterQuery ? App.state.transactions.filter(t => t.description.toLowerCase().includes(App.state.filterQuery.toLowerCase())) : App.state.transactions;
-                if (filteredTransactions.length === 0) { list.innerHTML = `<p style="text-align: center; padding: 20px;">${App.state.filterQuery ? 'Nenhuma transação encontrada.' : 'Nenhuma transação registrada.'}</p>`;
-                } else { list.innerHTML = filteredTransactions.map(t => `<li class="transaction-item">${this.templates.transactionItem(t, balanceMap.get(t.id))}</li>`).join(''); }
-                viewContainer.appendChild(list);
-            },
-
-            /**
-             * Renderiza a visualização de calendário.
-             */
-            renderCalendarView() {
-                const { viewContainer } = this.elements; viewContainer.innerHTML = '';
+            renderCalendar() {
+                const { mainContent } = this.elements;
                 const year = App.state.calendarDate.getFullYear(); const month = App.state.calendarDate.getMonth();
                 const firstDay = new Date(year, month, 1); const lastDay = new Date(year, month + 1, 0);
                 App.logic.applyRecurringExpenses(lastDay);
@@ -174,104 +148,116 @@
                     const dailyTotal = dailyTransactions.reduce((sum, t) => sum + t.amount, 0);
                     html += `<div class="calendar-day"><div class="day-number">${day}</div><div class="day-summary">${dailyTotal > 0 ? `<div class="income">${App.logic.formatCurrency(dailyTotal)}</div>`:''}${dailyTotal < 0 ? `<div class="expense">${App.logic.formatCurrency(dailyTotal)}</div>`:''}</div></div>`;
                 }
-                html += `</div>`; viewContainer.innerHTML = `<div class="card">${html}</div>`;
+                html += `</div>`;
+                mainContent.innerHTML = `<div class="card">${html}</div>`;
             },
-            
-            /**
-             * Renderiza a lista de gastos recorrentes dentro do modal.
-             */
-            renderRecurringList() {
-                const { recurringList } = this.elements;
-                if (App.state.recurringExpenses.length === 0) { recurringList.innerHTML = `<p style="opacity: 0.7; text-align: center; margin: 15px 0;">Nenhum gasto recorrente.</p>`; } else {
-                     recurringList.innerHTML = App.state.recurringExpenses.sort((a,b) => a.day - b.day).map(exp => `<div class="transaction-item">${this.templates.recurringItem(exp)}</div>`).join('');
+            renderFlowList() {
+                const container = document.getElementById('flow-list-container');
+                if(!container) return;
+                let balance = 0;
+                const sortedForBalance = [...App.state.transactions].sort((a, b) => a.date - b.date);
+                const balanceMap = new Map(); sortedForBalance.forEach(t => { balance += t.amount; balanceMap.set(t.id, balance); });
+                const filteredTransactions = App.state.filterQuery ? App.state.transactions.filter(t => t.description.toLowerCase().includes(App.state.filterQuery.toLowerCase())) : App.state.transactions;
+                if (filteredTransactions.length === 0) { container.innerHTML = `<div class="card"><p style="text-align: center; padding: 20px;">${App.state.filterQuery ? 'Nenhuma transação encontrada.' : 'Nenhuma transação registrada.'}</p></div>`;
+                } else {
+                    const listHTML = filteredTransactions.map(t => {
+                        return `<li class="transaction-item"><div class="transaction-details"><div class="transaction-description">${t.description} ${t.recurringId ? '🔁' : ''}</div><div class="transaction-date">${t.date.toLocaleDateString('pt-BR')}</div></div><div class="transaction-amount-wrapper"><div class="transaction-amount"><span class="${t.amount > 0 ? 'income' : 'expense'}">${App.logic.formatCurrency(t.amount)}</span><div class="transaction-balance">Saldo: ${App.logic.formatCurrency(balanceMap.get(t.id))}</div></div></li>`;
+                    }).join('');
+                    container.innerHTML = `<div class="card"><ul class="transaction-list">${listHTML}</ul></div>`;
                 }
             },
-            
-            /**
-             * Mostra ou esconde o modal.
-             * @param {boolean} show - True para mostrar, false para esconder.
-             */
-            toggleModal(show) { this.elements.recurringModal.style.display = show ? 'block' : 'none'; if (show) this.renderRecurringList(); },
-            
-            /**
-             * Atualiza o estado visual dos botões de navegação e do filtro.
-             */
-            updateViewButtons() {
-                this.elements.btnFlowView.classList.toggle('active', App.state.currentView === 'flow');
-                this.elements.btnCalendarView.classList.toggle('active', App.state.currentView === 'calendar');
-                this.elements.filterCard.style.display = App.state.currentView === 'flow' ? 'block' : 'none';
+             renderRecurringList() {
+                const container = document.getElementById('recurring-list');
+                if(!container) return;
+                if (App.state.recurringExpenses.length === 0) { container.innerHTML = `<p style="opacity: 0.7; text-align: center; margin: 15px 0;">Nenhum gasto recorrente.</p>`; } else {
+                     const listHTML = App.state.recurringExpenses.sort((a,b) => a.day - b.day).map(exp => {
+                         const endDateText = exp.endDate ? `Termina em ${new Date(exp.endDate + 'T00:00:00-03:00').toLocaleDateString('pt-BR')}` : '';
+                         return `<li class="transaction-item"><div class="recurring-item-details"><span>${exp.description} (${App.logic.formatCurrency(exp.amount)}) - Dia ${exp.day}</span><div class="recurring-item-end-date">${endDateText}</div></div><button class="delete-btn" data-id="${exp.id}">Remover</button></li>`
+                     }).join('');
+                     container.innerHTML = `<ul class="transaction-list">${listHTML}</ul>`;
+                }
             },
+            renderModal() {
+                const { modalContainer } = this.elements;
+                const { activeModal } = App.state;
+                modalContainer.innerHTML = '';
+                if (!activeModal) return;
 
-            /**
-             * Função principal de renderização que decide qual visualização desenhar.
-             */
-            render() { this.updateViewButtons(); if (App.state.currentView === 'flow') this.renderFlowView(); else this.renderCalendarView(); }
+                let title = '', content = '';
+                if (activeModal === 'add-tx') { title = 'Nova Transação'; content = this.templates.addTransactionModal(); }
+                if (activeModal === 'flow') { title = 'Fluxo de Caixa'; content = this.templates.flowModal(); }
+                if (activeModal === 'data') { title = 'Dados e Configurações'; content = this.templates.dataModal(); }
+
+                modalContainer.innerHTML = this.templates.modal(`modal-${activeModal}`, title, content);
+                document.getElementById(`modal-${activeModal}`).style.display = 'block';
+
+                // After injecting modal, attach specific listeners and render content
+                if (activeModal === 'add-tx') document.getElementById('date').valueAsDate = new Date();
+                if (activeModal === 'flow') this.renderFlowList();
+                if (activeModal === 'data') this.renderRecurringList();
+            },
+            render() { this.renderCalendar(); this.renderModal(); }
         },
-        
-        /**
-         * @namespace events
-         * @description Módulo que anexa todos os event listeners e lida com as ações do usuário.
-         */
         events: {
-            handleTransactionSubmit(e) { e.preventDefault(); const { dateInput, transactionForm } = App.ui.elements; App.addTransaction({date: new Date(transactionForm.date.value + 'T00:00:00-03:00'), description: transactionForm.description.value, amount: parseFloat(transactionForm.amount.value)}); transactionForm.reset(); dateInput.valueAsDate = new Date(); },
+            handleTransactionSubmit(e) { e.preventDefault(); App.addTransaction({date: new Date(e.target.date.value + 'T00:00:00-03:00'), description: e.target.description.value, amount: parseFloat(e.target.amount.value)}); App.closeModal(); },
             handleRecurringSubmit(e) { e.preventDefault(); const form = e.target; App.addRecurringExpense({description: form['recurring-description'].value, amount: parseFloat(form['recurring-amount'].value), day: parseInt(form['recurring-day'].value), endDate: form['recurring-end-date'].value}); form.reset(); },
-            handleDeleteRecurring(e) { const btn = e.target.closest('.delete-btn'); if (btn) App.deleteRecurringExpense(parseInt(btn.dataset.id, 10)); },
-            handleDeleteTransaction(e) { const btn = e.target.closest('.delete-transaction-btn'); if (btn) App.deleteTransaction(parseInt(btn.dataset.id, 10)); },
             handleCalendarNav(e) { if (e.target.id === 'prev-month') App.state.calendarDate.setMonth(App.state.calendarDate.getMonth() - 1); if (e.target.id === 'next-month') App.state.calendarDate.setMonth(App.state.calendarDate.getMonth() + 1); App.ui.render(); },
-            
-            /**
-             * Centraliza a anexação de todos os event listeners da aplicação.
-             */
+            handleFileImport(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const importedData = JSON.parse(event.target.result);
+                        if (!confirm('Tem certeza? Todos os seus dados atuais serão substituídos por este backup.')) return;
+                        App.state.transactions = importedData.transactions || [];
+                        App.state.recurringExpenses = importedData.recurringExpenses || [];
+                        App.data.load(); // Re-run load to parse dates
+                        App.data.save();
+                        App.ui.render();
+                        App.closeModal();
+                        alert('Dados importados com sucesso!');
+                    } catch (err) { alert('Erro: O arquivo selecionado não é um JSON válido.'); }
+                };
+                reader.readAsText(file);
+            },
             bind() {
                 const { elements } = App.ui;
-                elements.transactionForm.addEventListener('submit', this.handleTransactionSubmit);
-                elements.recurringForm.addEventListener('submit', this.handleRecurringSubmit);
-                elements.recurringList.addEventListener('click', this.handleDeleteRecurring);
-                elements.recurringButton.addEventListener('click', () => App.ui.toggleModal(true));
-                elements.modalCloseButton.addEventListener('click', () => App.ui.toggleModal(false));
-                window.addEventListener('click', (e) => { if (e.target === elements.recurringModal) App.ui.toggleModal(false); });
-                elements.viewContainer.addEventListener('click', this.handleDeleteTransaction);
-                elements.viewContainer.addEventListener('click', this.handleCalendarNav);
-                elements.filterInput.addEventListener('input', e => App.setFilter(e.target.value));
-                elements.btnFlowView.addEventListener('click', () => App.setView('flow'));
-                elements.btnCalendarView.addEventListener('click', () => App.setView('calendar'));
-                elements.exportButton.addEventListener('click', () => { const dataStr = JSON.stringify(App.state, null, 2); const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr); const link = document.createElement('a'); link.setAttribute('href', dataUri); link.setAttribute('download', `dados_financeiros_${new Date().toISOString().slice(0,10)}.json`); link.click(); });
+                elements.fabAddTx.addEventListener('click', () => App.openModal('add-tx'));
+                elements.navFlow.addEventListener('click', () => App.openModal('flow'));
+                elements.navData.addEventListener('click', () => App.openModal('data'));
+                elements.mainContent.addEventListener('click', this.handleCalendarNav);
+                // Listeners for dynamic modal content
+                document.body.addEventListener('click', e => {
+                    if (e.target.classList.contains('close-button')) App.closeModal();
+                    if (e.target.id === 'btn-export') {
+                         const dataStr = JSON.stringify(App.state, null, 2); const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr); const link = document.createElement('a'); link.setAttribute('href', dataUri); link.setAttribute('download', `dados_financeiros_${new Date().toISOString().slice(0,10)}.json`); link.click();
+                    }
+                    if (e.target.id === 'btn-import') document.getElementById('import-file-input').click();
+                    const recurDelBtn = e.target.closest('.delete-btn'); if(recurDelBtn) App.deleteRecurringExpense(parseInt(recurDelBtn.dataset.id, 10));
+                });
+                document.body.addEventListener('submit', e => {
+                    if (e.target.id === 'transaction-form') this.handleTransactionSubmit(e);
+                    if (e.target.id === 'recurring-form') this.handleRecurringSubmit(e);
+                });
+                document.body.addEventListener('input', e => { if (e.target.id === 'filter') { App.state.filterQuery = e.target.value.toLowerCase(); App.ui.renderFlowList(); } });
+                document.body.addEventListener('change', e => { if(e.target.id === 'import-file-input') this.handleFileImport(e); });
             }
         },
-        
-        // --- Métodos "Controladores" da Aplicação ---
-        // Estas funções são chamadas pelos eventos e orquestram as mudanças de estado e UI.
-
-        addTransaction({date, description, amount}) { if (!description || isNaN(amount)) return alert('Dados da transação inválidos.'); this.state.transactions.push({ id: Date.now(), date, description, amount, recurringId: null }); this.logic.sortTransactions(this.state.transactions); this.data.save(); this.ui.render(); },
-        deleteTransaction(id) { const tx = this.state.transactions.find(t => t.id === id); if (tx && tx.recurringId) return alert('Transações recorrentes devem ser removidas pela regra em "Gastos Recorrentes".'); if (!confirm('Remover esta transação?')) return; this.state.transactions = this.state.transactions.filter(t => t.id !== id); this.data.save(); this.ui.render(); },
-        addRecurringExpense({description, amount, day, endDate}) { if (amount > 0) amount = -amount; if (!description || isNaN(amount) || isNaN(day)) return alert('Dados do gasto recorrente inválidos.'); this.state.recurringExpenses.push({ id: Date.now(), description, amount, day, endDate: endDate || null, lastApplied: null }); if (this.logic.applyRecurringExpenses()) this.data.save(); else this.data.save(); this.ui.render(); this.ui.renderRecurringList(); },
-        deleteRecurringExpense(id) { if (!confirm('Deseja remover esta regra e TODAS as suas transações? Esta ação não pode ser desfeita.')) return; this.state.transactions = this.state.transactions.filter(t => t.recurringId !== id); this.state.recurringExpenses = this.state.recurringExpenses.filter(exp => exp.id !== id); this.data.save(); this.ui.renderRecurringList(); this.ui.render(); },
-        setView(view) { this.state.currentView = view; if (view === 'calendar') { this.state.filterQuery = ''; this.ui.elements.filterInput.value = ''; } this.ui.render(); },
-        setFilter(query) { this.state.filterQuery = query.toLowerCase(); this.ui.render(); },
-        
-        /**
-         * @function init
-         * @description Ponto de entrada da aplicação. Inicializa todos os módulos.
-         */
+        openModal(modalId) { this.state.activeModal = modalId; this.ui.renderModal(); },
+        closeModal() { this.state.activeModal = null; this.ui.renderModal(); },
+        addTransaction({date, description, amount}) { if (!description || isNaN(amount)) return; this.state.transactions.push({ id: Date.now(), date, description, amount, recurringId: null }); this.logic.sortTransactions(this.state.transactions); this.data.save(); this.ui.render(); },
+        addRecurringExpense({description, amount, day, endDate}) { if (amount > 0) amount = -amount; if (!description || isNaN(amount) || isNaN(day)) return; this.state.recurringExpenses.push({ id: Date.now(), description, amount, day, endDate: endDate || null, lastApplied: null }); if (this.logic.applyRecurringExpenses()) { this.data.save(); this.ui.renderCalendar(); } else this.data.save(); this.ui.renderRecurringList(); },
+        deleteRecurringExpense(id) { if (!confirm('Remover esta regra e TODAS as suas transações?')) return; this.state.transactions = this.state.transactions.filter(t => t.recurringId !== id); this.state.recurringExpenses = this.state.recurringExpenses.filter(exp => exp.id !== id); this.data.save(); this.ui.renderRecurringList(); this.ui.renderCalendar(); },
         init() {
             this.ui.cacheDOMElements();
             this.data.load();
             if (this.logic.applyRecurringExpenses()) this.data.save();
             this.logic.sortTransactions(this.state.transactions);
             this.events.bind();
-            this.ui.elements.dateInput.valueAsDate = new Date();
             this.ui.render();
-
-            // Registo do Service Worker para PWA.
-            if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.register('./sw.js')
-                    .then(reg => console.log('Service Worker Registrado com sucesso.', reg))
-                    .catch(err => console.error('Falha ao registrar Service Worker:', err));
-            }
+            if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').then(reg => console.log('SW Registrado')).catch(err => console.error('SW Falhou:', err));
         }
     };
-
-    // Inicia a aplicação quando o DOM estiver pronto.
     document.addEventListener('DOMContentLoaded', () => App.init());
-
 })();
