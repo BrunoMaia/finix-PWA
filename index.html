@@ -3,41 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Financeiro Pessoal</title>
+    <title>Finix</title>
     <meta name="theme-color" content="#1a1a1a"/>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icons/icon-192.png">
     <style>
         :root {
-            --bg-color: #121212;
-            --surface-color: #1e1e1e;
-            --primary-color: #6200ee;
-            --secondary-color: #03dac6;
-            --text-color: #e0e0e0;
-            --income-color: #00c853;
-            --expense-color: #d50000;
-            --border-color: #333;
+            --bg-color: #121212; --surface-color: #1e1e1e; --primary-color: #BB86FC;
+            --secondary-color: #03DAC6; --text-color: #e0e0e0; --income-color: #66bb6a;
+            --expense-color: #ef5350; --border-color: #333;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        html { overflow-y: scroll; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: var(--bg-color); color: var(--text-color); line-height: 1.6; padding-bottom: 80px; /* Space for bottom nav */}
-        main { max-width: 800px; margin: 0 auto; padding: 15px; }
-        .card { background-color: var(--surface-color); border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid var(--border-color); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
-        .form-group { margin-bottom: 15px; }
-        .form-group label { display: block; margin-bottom: 8px; font-weight: 500; color: #bbb; }
-        .form-group input { width: 100%; padding: 12px; background-color: #333; border: 1px solid #444; border-radius: 8px; color: var(--text-color); font-size: 1rem; }
-        input[type="date"]:in-range::-webkit-datetime-edit-year-field,
-        input[type="date"]:in-range::-webkit-datetime-edit-month-field,
-        input[type="date"]:in-range::-webkit-datetime-edit-day-field { color: var(--text-color) !important; }
-        button { padding: 12px 24px; border: none; border-radius: 8px; background-color: var(--primary-color); color: #fff; font-size: 1rem; cursor: pointer; transition: background-color 0.2s; font-weight: bold; }
-        button:hover { background-color: #7e3ff2; }
-        .button-secondary { background-color: transparent; border: 1px solid var(--primary-color); color: var(--primary-color); }
-        .button-secondary:hover { background-color: rgba(98, 0, 238, 0.2); }
-        /* --- Nova UI --- */
+        html { scroll-behavior: smooth; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: var(--bg-color); color: var(--text-color); line-height: 1.6; padding-bottom: 80px; }
+        main { display: flex; flex-direction: column; max-width: 800px; margin: 0 auto; }
+        button { padding: 12px 24px; border: none; border-radius: 8px; background-color: var(--primary-color); color: #000; font-size: 1rem; cursor: pointer; transition: background-color 0.2s; font-weight: bold; }
+        button:hover { background-color: #D1C4E9; }
+        /* --- UI Principal --- */
+        #calendar-container { padding: 15px; }
+        #day-details-container { padding: 0 15px 15px 15px; }
         .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background-color: var(--surface-color); display: flex; justify-content: space-around; padding: 10px 0; box-shadow: 0 -2px 10px rgba(0,0,0,0.5); border-top: 1px solid var(--border-color); }
         .nav-button { background: none; border: none; color: #aaa; display: flex; flex-direction: column; align-items: center; font-size: 0.75rem; padding: 5px; flex-grow: 1; }
+        .nav-button.active { color: var(--secondary-color); }
         .nav-button svg { width: 24px; height: 24px; margin-bottom: 4px; }
-        .fab { position: fixed; bottom: 85px; right: 25px; width: 56px; height: 56px; background-color: var(--secondary-color); border-radius: 50%; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.4); color: #000; font-size: 2rem; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+        .fab { position: fixed; bottom: 85px; right: 25px; width: 56px; height: 56px; background-color: var(--primary-color); border-radius: 50%; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.4); color: #000; font-size: 2rem; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.2s ease; }
+        .fab:hover { transform: scale(1.05); }
         .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow-y: auto; background-color: rgba(0,0,0,0.8); backdrop-filter: blur(5px); animation: fadeIn 0.3s ease; }
         .modal-content { background-color: var(--surface-color); margin: 0; width: 100%; min-height: 100%; border-radius: 0; padding: 20px; padding-top: 60px; }
         .modal-header { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background-color: var(--surface-color); z-index: 1001; }
@@ -45,39 +35,46 @@
         .close-button { background: none; border: none; color: #aaa; font-size: 2rem; cursor: pointer; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         /* --- Componentes --- */
-        .calendar-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        .calendar-controls h2 { color: var(--secondary-color); }
+        .calendar-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding: 0 5px; }
+        .calendar-controls h2 { color: var(--secondary-color); font-size: 1.2rem; }
         .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
         .calendar-header { text-align: center; font-size: 0.8em; opacity: 0.7; padding-bottom: 10px; }
-        .calendar-day { background-color: #2a2a2a; border-radius: 8px; min-height: 80px; padding: 5px; font-size: 0.8em; display: flex; flex-direction: column; }
+        .calendar-day { background-color: transparent; border-radius: 8px; min-height: 60px; padding: 5px; font-size: 0.8em; display: flex; flex-direction: column; cursor: pointer; border: 2px solid transparent; transition: border-color 0.2s, background-color 0.2s; }
+        .calendar-day:hover { background-color: #2a2a2a; }
         .calendar-day.other-month { opacity: 0.4; }
-        .day-number { font-weight: bold; }
-        .day-summary { margin-top: auto; font-size: 0.9em; text-align: right; }
+        .calendar-day.today .day-number { color: var(--primary-color); font-weight: bold; }
+        .calendar-day.selected { border-color: var(--primary-color); background-color: #2a2a2a; }
+        .day-number { text-align: center; }
+        .day-summary { margin-top: auto; display: flex; justify-content: center; gap: 4px; }
+        .day-dot { width: 6px; height: 6px; border-radius: 50%; }
+        .day-dot.income { background-color: var(--income-color); }
+        .day-dot.expense { background-color: var(--expense-color); }
+        .day-details-header { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--border-color); }
+        .day-details-title { font-size: 1.1rem; }
+        .day-details-summary { font-size: 0.9rem; opacity: 0.8; }
         .transaction-list { list-style: none; padding: 0; }
-        .transaction-item { display: flex; justify-content: space-between; padding: 15px; border-bottom: 1px solid var(--border-color); align-items: center; flex-wrap: wrap; gap: 10px; }
-        .transaction-item:last-child { border-bottom: none; }
+        .transaction-item { display: flex; justify-content: space-between; padding: 15px 5px; border-bottom: 1px solid var(--border-color); align-items: center; }
         .transaction-details { flex-grow: 1; }
-        .transaction-description { font-weight: 500; }
-        .transaction-date { font-size: 0.8em; opacity: 0.7; }
-        .transaction-amount-wrapper { display: flex; align-items: center; gap: 15px; }
-        .transaction-amount { font-weight: 500; font-size: 1.1em; text-align: right; min-width: 100px; }
-        .transaction-balance { font-size: 0.8em; opacity: 0.7; text-align: right; width: 100%; margin-top: 5px; }
+        .transaction-amount { font-weight: 500; font-size: 1.1em; text-align: right; }
         .income { color: var(--income-color); }
         .expense { color: var(--expense-color); }
-        .delete-btn { background-color: transparent; border: 1px solid var(--expense-color); color: var(--expense-color); padding: 2px 8px; border-radius: 4px; font-size: 0.8em; margin-left: 10px; line-height: 1.2; }
     </style>
 </head>
 <body>
 
-    <main id="main-content">
-        </main>
+    <main>
+        <div id="calendar-container"></div>
+        <div id="day-details-container"></div>
+    </main>
 
-    <button class="fab" id="fab-add-tx" title="Adicionar Transação">+</button>
+    <button class="fab" id="fab-add-tx" title="Adicionar Transação">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+    </button>
 
     <footer class="bottom-nav">
-        <button class="nav-button" id="nav-flow" title="Fluxo de Caixa">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 16 16"><path d="M1 2.5a.5.5 0 0 1 .5-.5h13a.5.5 0 0 1 0 1h-13a.5.5 0 0 1-.5-.5zm0 5a.5.5 0 0 1 .5-.5h13a.5.5 0 0 1 0 1h-13a.5.5 0 0 1-.5-.5zm0 5a.5.5 0 0 1 .5-.5h13a.5.5 0 0 1 0 1h-13a.5.5 0 0 1-.5-.5z"/></svg>
-            Fluxo
+        <button class="nav-button active" id="nav-calendar" title="Calendário">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 16 16"><path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5zM1 4v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4H1z"/></svg>
+            Calendário
         </button>
         <button class="nav-button" id="nav-data" title="Importar/Exportar Dados">
             <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 16 16"><path d="M8.5 1.5A1.5 1.5 0 0 0 7 0H1.5A1.5 1.5 0 0 0 0 1.5v13A1.5 1.5 0 0 0 1.5 16h13a1.5 1.5 0 0 0 1.5-1.5v-5.5A1.5 1.5 0 0 0 14.5 7.5h-5A1.5 1.5 0 0 0 8 9v5.5a.5.5 0 0 1-1 0V9a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5v5.5a.5.5 0 0 1-1 0V9.5a.5.5 0 0 1-.5-.5h-5a.5.5 0 0 1-.5.5v5a.5.5 0 0 1-1 0v-5A1.5 1.5 0 0 0 6.5 8h-5A1.5 1.5 0 0 0 0 9.5v5A1.5 1.5 0 0 0 1.5 16h13a.5.5 0 0 0 .5-.5v-13a.5.5 0 0 0-.5-.5H7.5A.5.5 0 0 1 7 2V1.5z"/></svg>
@@ -85,8 +82,46 @@
         </button>
     </footer>
 
-    <div id="modal-container">
+    <div id="modal-container"></div>
+
+    <template id="calendar-day-template">
+        <div class="calendar-day" role="button" tabindex="0">
+            <div class="day-number"></div>
+            <div class="day-summary">
+                </div>
         </div>
+    </template>
+
+    <template id="day-details-template">
+        <div class="card" id="day-details-card">
+            <div class="day-details-header">
+                <h3 class="day-details-title"></h3>
+                <p class="day-details-summary"></p>
+            </div>
+            <ul class="transaction-list"></ul>
+        </div>
+    </template>
+
+    <template id="transaction-item-template">
+         <li class="transaction-item">
+            <div class="transaction-details">
+                <p class="transaction-description"></p>
+            </div>
+            <div class="transaction-amount"></div>
+        </li>
+    </template>
+
+    <template id="modal-template">
+         <div class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title"></h2>
+                    <button class="close-button">&times;</button>
+                </div>
+                <div class="modal-body"></div>
+            </div>
+        </div>
+    </template>
 
     <script src="main.js"></script>
 </body>
