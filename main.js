@@ -1,30 +1,15 @@
 /**
- * @file Arquivo principal da aplicação de finanças.
- * @author Gemini
- * @version 7.0
- * @description Refatorado para uma arquitetura Orientada a Objetos com Classes (ES6)
- * e separação de responsabilidades. A renderização da UI utiliza o elemento <template>
- * para evitar a manipulação de strings de HTML no JavaScript.
+ * @file Arquivo principal do Finix PWA.
+ * @version 11.0 (Polished UI & Installments)
+ * @description Refatoração da UI, unificação da entrada de dados e mudança para sistema de parcelas.
  */
-
-// Espera o DOM estar completamente carregado para iniciar a aplicação.
 document.addEventListener('DOMContentLoaded', () => {
     const app = new FinanceApp();
     app.init();
 });
 
-
-/**
- * @class FinanceApp
- * @description Classe principal que orquestra toda a aplicação. Age como o "Controller".
- * Gerencia o estado, inicializa as views e conecta os eventos do usuário às ações.
- */
 class FinanceApp {
-    /**
-     * @constructor
-     */
     constructor() {
-        /** @property {object} state - A única fonte da verdade para os dados da aplicação. */
         this.state = {
             transactions: [],
             recurringExpenses: [],
@@ -32,70 +17,49 @@ class FinanceApp {
             selectedDate: new Date(),
             activeModal: null
         };
-
-        // Instancia os gerenciadores e as views.
-        this.dataManager = new DataManager('financePWAData_v7');
+        this.dataManager = new DataManager('finixPWAData_v11');
         this.calendarView = new CalendarView('#calendar-container');
-        this.dayDetailsView = new DayDetailsView('#day-details-container');
-        this.modalManager = new ModalManager('#modal-container');
+        this.dayDetailsView = new DayDetailsView('#day-details-container', (id) => this.deleteTransaction(id));
+        this.modalManager = new ModalManager(this, '#modal-container');
         this.navView = new NavView(this);
     }
-
-    /**
-     * @method init
-     * @description Ponto de entrada da aplicação. Carrega os dados, inicializa as views e anexa os eventos.
-     */
-    async init() {
+    init() {
         this.state = this.dataManager.load(this.state);
+        // CORREÇÃO: Garante que o app nunca inicie com um modal aberto.
+        this.state.activeModal = null;
         this.applyAndSortRecurring();
-
         this.navView.bindEvents();
         this.calendarView.bindEvents(
             (date) => this.setSelectedDate(date),
             (direction) => this.changeMonth(direction)
         );
-
         this.ui.render();
         this.registerServiceWorker();
     }
-
-    /**
-     * @method ui
-     * @description Contém métodos que controlam a renderização da interface.
-     */
     ui = {
         render: () => {
             this.calendarView.render(this.state);
             this.dayDetailsView.render(this.state);
-            this.modalManager.render(this.state.activeModal);
+            this.modalManager.render();
+            // Atualiza o título principal dinamicamente
+            document.getElementById('main-title').textContent = this.state.activeModal ? '' : 'Finix';
         }
     }
-
-    // --- MÉTODOS DE MANIPULAÇÃO DE ESTADO ---
-
-    /**
-     * Atualiza a data selecionada no estado e renderiza novamente a UI.
-     * @param {Date} date - A nova data selecionada.
-     */
     setSelectedDate(date) {
         this.state.selectedDate = date;
         this.ui.render();
-        document.getElementById('day-details-container').scrollIntoView({ behavior: 'smooth' });
+        const detailsEl = document.getElementById('day-details-container');
+        if (detailsEl && detailsEl.innerHTML !== '') {
+            detailsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
     }
-
-    /**
-     * Altera o mês de visualização do calendário.
-     * @param {number} direction - 1 para o próximo mês, -1 para o mês anterior.
-     */
     changeMonth(direction) {
         this.state.calendarDate.setMonth(this.state.calendarDate.getMonth() + direction);
+        // CORREÇÃO: Garante que recorrentes de meses futuros sejam projetados
+        this.applyAndSortRecurring();
+        this.dataManager.save(this.state);
         this.ui.render();
     }
-
-    /**
-     * Adiciona uma nova transação ao estado.
-     * @param {object} txData - Dados da transação { date, description, amount }.
-     */
     addTransaction(txData) {
         if (!txData.description || isNaN(txData.amount)) return;
         this.state.transactions.push({ id: Date.now(), ...txData, recurringId: null });
@@ -104,168 +68,136 @@ class FinanceApp {
         this.ui.render();
         this.modalManager.close();
     }
-
-    /**
-     * Adiciona uma nova regra de gasto recorrente.
-     * @param {object} recurData - Dados da despesa recorrente.
-     */
+    deleteTransaction(id) {
+        const tx = this.state.transactions.find(t => t.id === id);
+        if (!tx) return;
+        if (tx.recurringId) {
+            alert('Transações recorrentes devem ser removidas pela regra em "Configurações".');
+            return;
+        }
+        if (!confirm(`Deseja realmente excluir a transação "${tx.description}"?`)) return;
+        this.state.transactions = this.state.transactions.filter(t => t.id !== id);
+        this.dataManager.save(this.state);
+        this.ui.render();
+    }
     addRecurringExpense(recurData) {
         if (recurData.amount > 0) recurData.amount = -recurData.amount;
-        if (!recurData.description || isNaN(recurData.amount) || isNaN(recurData.day)) return;
-        this.state.recurringExpenses.push({ id: Date.now(), ...recurData, endDate: recurData.endDate || null, lastApplied: null });
+        if (!recurData.description || isNaN(recurData.amount) || isNaN(recurData.day) || isNaN(recurData.installments)) return;
+        this.state.recurringExpenses.push({ id: Date.now(), ...recurData, appliedCount: 0 });
         this.applyAndSortRecurring();
         this.dataManager.save(this.state);
-        this.modalManager.renderRecurringList(this.state.recurringExpenses); // Apenas atualiza a lista no modal
+        this.ui.render();
+        this.modalManager.close();
     }
-
-    /**
-     * Exclui uma regra de gasto recorrente e todas as suas transações.
-     * @param {number} id - O ID da regra a ser excluída.
-     */
     deleteRecurringExpense(id) {
         if (!confirm('Deseja remover esta regra e TODAS as suas transações?')) return;
         this.state.transactions = this.state.transactions.filter(t => t.recurringId !== id);
         this.state.recurringExpenses = this.state.recurringExpenses.filter(exp => exp.id !== id);
         this.dataManager.save(this.state);
-        this.ui.render(); // Renderiza tudo para refletir a exclusão das transações
-        this.modalManager.renderRecurringList(this.state.recurringExpenses);
+        this.ui.render();
+        this.modalManager.renderRecurringList();
     }
-
-    /**
-     * Importa dados de um arquivo JSON, sobrescrevendo os dados atuais.
-     * @param {string} jsonString - O conteúdo do arquivo JSON.
-     */
     importData(jsonString) {
         try {
             const importedData = JSON.parse(jsonString);
-            if (!confirm('Tem certeza? Todos os seus dados atuais serão substituídos por este backup.')) return;
-            this.state = this.dataManager.load(importedData); // Usa o load para reviver as datas
+            if (!confirm('Tem certeza? Todos os seus dados atuais serão substituídos.')) return;
+            const loadedState = this.dataManager.load(importedData);
+            this.state.transactions = loadedState.transactions || [];
+            this.state.recurringExpenses = loadedState.recurringExpenses || [];
             this.applyAndSortRecurring();
             this.dataManager.save(this.state);
             this.ui.render();
             this.modalManager.close();
             alert('Dados importados com sucesso!');
-        } catch (err) {
-            alert('Erro: O arquivo selecionado não é um JSON válido.');
-        }
+        } catch (err) { console.error("Erro ao importar:", err); alert('Erro: O arquivo selecionado não é um JSON válido.'); }
     }
-
-    /**
-     * Aplica despesas recorrentes e ordena as transações.
-     */
     applyAndSortRecurring() {
-        const lastDayOfMonth = new Date(this.state.calendarDate.getFullYear(), this.state.calendarDate.getMonth() + 1, 0);
-        // Lógica de negócio... (a mesma da versão anterior, agora centralizada)
-        let needsUpdate = false;
+        // MELHORIA: Lógica de recorrência baseada em parcelas
         this.state.recurringExpenses.forEach(expense => {
+            if (expense.appliedCount >= expense.installments) return;
+
             let firstCheckDate;
             if (expense.lastApplied) {
                 firstCheckDate = new Date(expense.lastApplied);
                 firstCheckDate.setMonth(firstCheckDate.getMonth() + 1);
             } else {
-                const earliestTxDate = this.state.transactions.length > 0 ? [...this.state.transactions].sort((a, b) => a.date - b.date)[0].date : new Date();
-                firstCheckDate = new Date(Math.min(new Date(), earliestTxDate));
+                 firstCheckDate = this.state.transactions.length > 0
+                    ? new Date(Math.min(new Date(), [...this.state.transactions].sort((a,b) => a.date - b.date)[0].date))
+                    : new Date();
             }
             firstCheckDate.setDate(1);
-            while (firstCheckDate <= lastDayOfMonth) {
+
+            while (expense.appliedCount < expense.installments && firstCheckDate <= new Date(new Date().setFullYear(new Date().getFullYear() + 5))) { // Limite de 5 anos para evitar loops infinitos
                 const transactionDate = new Date(firstCheckDate.getFullYear(), firstCheckDate.getMonth(), expense.day, 12, 0, 0);
-                if (expense.endDate && transactionDate > new Date(expense.endDate + 'T23:59:59-03:00')) { firstCheckDate.setMonth(firstCheckDate.getMonth() + 1); continue; }
-                const alreadyExists = this.state.transactions.some(t => t.recurringId === expense.id && t.date.getFullYear() === transactionDate.getFullYear() && t.date.getMonth() === transactionDate.getMonth());
-                if (!alreadyExists) {
+                const alreadyExists = this.state.transactions.some(t => t.recurringId === expense.id && t.date.getTime() === transactionDate.getTime());
+
+                if (!alreadyExists && expense.appliedCount < expense.installments) {
                     this.state.transactions.push({ id: Date.now() + Math.random(), date: transactionDate, description: expense.description, amount: expense.amount, recurringId: expense.id });
-                    expense.lastApplied = transactionDate.toISOString(); needsUpdate = true;
+                    expense.lastApplied = transactionDate.toISOString();
+                    expense.appliedCount++;
                 }
                 firstCheckDate.setMonth(firstCheckDate.getMonth() + 1);
             }
         });
-
-        this.state.transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+        this.state.transactions.sort((a, b) => new Date(a.date) - new Date(b.date));
     }
-
-    /**
-     * Registra o Service Worker.
-     */
     registerServiceWorker() {
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js')
-                .then(reg => console.log('Service Worker Registrado.', reg))
-                .catch(err => console.error('Falha ao registrar Service Worker:', err));
-        }
+        if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').then(reg => console.log('SW Registrado.')).catch(err => console.error('SW Falhou:', err));
     }
 }
 
-
-/**
- * @class DataManager
- * @description Gerencia a leitura e escrita de dados no localStorage.
- */
 class DataManager {
-    constructor(storageKey) {
-        this.storageKey = storageKey;
-    }
-    save(state) {
-        localStorage.setItem(this.storageKey, JSON.stringify(state));
-    }
+    constructor(storageKey) { this.storageKey = storageKey; }
+    save(state) { localStorage.setItem(this.storageKey, JSON.stringify(state)); }
     load(defaultState) {
         const data = localStorage.getItem(this.storageKey);
-        if (!data) return defaultState;
-        const parsedData = JSON.parse(data);
-        if (parsedData.transactions) parsedData.transactions.forEach(t => t.date = new Date(t.date));
-        if (parsedData.recurringExpenses) parsedData.recurringExpenses.forEach(r => { if(r.lastApplied) r.lastApplied = new Date(r.lastApplied); });
-        return { ...defaultState, ...parsedData };
+        const stateSource = data ? JSON.parse(data) : defaultState;
+
+        if (stateSource.transactions) stateSource.transactions.forEach(t => t.date = new Date(t.date));
+        if (stateSource.recurringExpenses) stateSource.recurringExpenses.forEach(r => {
+            if(r.lastApplied) r.lastApplied = new Date(r.lastApplied);
+            // MELHORIA: Migração de dados de `endDate` para `installments`
+            if (r.endDate && !r.installments) {
+                r.installments = 12; // Define um padrão
+                delete r.endDate;
+            }
+            if(!r.appliedCount) r.appliedCount = 0;
+        });
+        if (stateSource.calendarDate) stateSource.calendarDate = new Date(stateSource.calendarDate);
+        if (stateSource.selectedDate) stateSource.selectedDate = new Date(stateSource.selectedDate);
+
+        return { ...defaultState, ...stateSource };
     }
 }
 
-/**
- * @class CalendarView
- * @description Gerencia a renderização e eventos do componente de calendário.
- */
 class CalendarView {
-    constructor(selector) {
-        this.container = document.querySelector(selector);
-        this.template = document.getElementById('calendar-day-template');
-    }
-
-    bindEvents(onDayClick, onMonthChange) {
-        this.container.addEventListener('click', e => {
-            const dayElement = e.target.closest('.calendar-day');
-            if (dayElement && dayElement.dataset.date) {
-                onDayClick(new Date(dayElement.dataset.date));
-            }
-            if (e.target.id === 'prev-month') onMonthChange(-1);
-            if (e.target.id === 'next-month') onMonthChange(1);
-        });
-    }
-
+    constructor(selector) { this.container = document.querySelector(selector); this.template = document.getElementById('calendar-day-template'); }
+    bindEvents(onDayClick, onMonthChange) { this.container.addEventListener('click', e => { const dayElement = e.target.closest('.calendar-day'); if (dayElement && dayElement.dataset.date) onDayClick(new Date(dayElement.dataset.date)); if (e.target.id === 'prev-month') onMonthChange(-1); if (e.target.id === 'next-month') onMonthChange(1); }); }
     render(state) {
         const { calendarDate, selectedDate, transactions } = state;
-        const year = calendarDate.getFullYear();
-        const month = calendarDate.getMonth();
+        const year = calendarDate.getFullYear(); const month = calendarDate.getMonth();
         const firstDay = new Date(year, month, 1);
-        const lastDay = new Date(year, month + 1, 0);
 
-        let html = `<div class="calendar-controls"><button id="prev-month">&lt;</button><h2>${firstDay.toLocaleString('pt-BR',{month:'long',year:'numeric'})}</h2><button id="next-month">&gt;</button></div><div class="calendar-grid">`;
+        // CORREÇÃO: Renderiza cabeçalhos dos dias da semana
+        let html = `<div class="calendar-controls"><button id="prev-month" title="Mês anterior">&lt;</button><h2>${firstDay.toLocaleString('pt-BR',{month:'long',year:'numeric'})}</h2><button id="next-month" title="Próximo mês">&gt;</button></div>`;
+        html += `<div class="calendar-grid">`;
         html += ['D','S','T','Q','Q','S','S'].map(d => `<div class="calendar-header">${d}</div>`).join('');
+        this.container.innerHTML = html; // Insere o cabeçalho
+
+        const grid = document.createElement('div'); grid.className = 'calendar-grid';
+        // Reposiciona os cabeçalhos dentro do grid para manter a estrutura
+        this.container.querySelectorAll('.calendar-header').forEach(h => grid.appendChild(h));
 
         const fragment = document.createDocumentFragment();
-        for (let i = 0; i < firstDay.getDay(); i++) {
-            const dayClone = this.template.content.cloneNode(true);
-            dayClone.querySelector('.calendar-day').classList.add('other-month');
-            fragment.appendChild(dayClone);
-        }
-
-        for (let day = 1; day <= lastDay.getDate(); day++) {
+        for (let i = 0; i < firstDay.getDay(); i++) { const dayClone = this.template.content.cloneNode(true); dayClone.querySelector('.calendar-day').classList.add('other-month'); fragment.appendChild(dayClone); }
+        for (let day = 1; day <= new Date(year, month + 1, 0).getDate(); day++) {
             const currentDate = new Date(year, month, day, 12, 0, 0);
             const dayClone = this.template.content.cloneNode(true);
             const dayElement = dayClone.querySelector('.calendar-day');
-
             dayElement.dataset.date = currentDate.toISOString();
             dayElement.querySelector('.day-number').textContent = day;
-
-            const today = new Date();
-            if (currentDate.toDateString() === today.toDateString()) dayElement.classList.add('today');
+            if (currentDate.toDateString() === new Date().toDateString()) dayElement.classList.add('today');
             if (currentDate.toDateString() === selectedDate.toDateString()) dayElement.classList.add('selected');
-
             const dailyTx = transactions.filter(t => new Date(t.date).toDateString() === currentDate.toDateString());
             if (dailyTx.length > 0) {
                 const summary = dayElement.querySelector('.day-summary');
@@ -274,160 +206,156 @@ class CalendarView {
             }
             fragment.appendChild(dayClone);
         }
-
-        const grid = document.createElement('div');
-        grid.className = 'calendar-grid';
         grid.appendChild(fragment);
-
-        this.container.innerHTML = `<div class="calendar-controls"><button id="prev-month">&lt;</button><h2>${firstDay.toLocaleString('pt-BR',{month:'long',year:'numeric'})}</h2><button id="next-month">&gt;</button></div>`;
         this.container.appendChild(grid);
     }
 }
 
-/**
- * @class DayDetailsView
- * @description Gerencia a renderização da lista de transações do dia selecionado.
- */
 class DayDetailsView {
-    constructor(selector) {
-        this.container = document.querySelector(selector);
-        this.template = document.getElementById('day-details-template');
-        this.itemTemplate = document.getElementById('transaction-item-template');
-    }
-
+    constructor(selector, onDeleteCallback) { this.container = document.querySelector(selector); this.template = document.getElementById('day-details-template'); this.itemTemplate = document.getElementById('transaction-item-template'); this.container.addEventListener('click', e => { const deleteButton = e.target.closest('.delete-transaction-btn'); if (deleteButton) { const itemElement = deleteButton.closest('.transaction-item'); onDeleteCallback(parseInt(itemElement.dataset.id, 10)); } }); }
     render(state) {
         const { selectedDate, transactions } = state;
         const dailyTx = transactions.filter(t => new Date(t.date).toDateString() === selectedDate.toDateString());
-
-        if (dailyTx.length === 0) {
-            this.container.innerHTML = '';
-            return;
-        }
-
+        if (dailyTx.length === 0) { this.container.innerHTML = ''; return; }
         const detailsClone = this.template.content.cloneNode(true);
         const titleEl = detailsClone.querySelector('.day-details-title');
         const summaryEl = detailsClone.querySelector('.day-details-summary');
         const listEl = detailsClone.querySelector('.transaction-list');
-
         const dailyTotal = dailyTx.reduce((sum, t) => sum + t.amount, 0);
         titleEl.textContent = selectedDate.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
         summaryEl.textContent = `Balanço do Dia: ${formatCurrency(dailyTotal)}`;
-
-        dailyTx.forEach(tx => {
+        // Ordena transações do dia para consistência
+        dailyTx.sort((a,b) => a.id - b.id).forEach(tx => {
             const itemClone = this.itemTemplate.content.cloneNode(true);
+            const itemElement = itemClone.querySelector('.transaction-item');
+            itemElement.dataset.id = tx.id;
             itemClone.querySelector('.transaction-description').textContent = tx.description;
             const amountEl = itemClone.querySelector('.transaction-amount');
             amountEl.textContent = formatCurrency(tx.amount);
+            // CORREÇÃO: Garante que as cores apareçam
             amountEl.classList.add(tx.amount > 0 ? 'income' : 'expense');
+            if(tx.recurringId) itemClone.querySelector('.delete-transaction-btn').style.display = 'none';
             listEl.appendChild(itemClone);
         });
-
         this.container.innerHTML = '';
         this.container.appendChild(detailsClone);
     }
 }
 
-/**
- * @class ModalManager
- * @description Gerencia a criação e exibição de todos os modais da aplicação.
- */
 class ModalManager {
-    constructor(selector) {
-        this.container = document.querySelector(selector);
-        this.template = document.getElementById('modal-template');
-        this.app = null; // Será definido no bind
-    }
-
-    bind(appInstance) { this.app = appInstance; }
-
-    open(modalId) { this.app.state.activeModal = modalId; this.render(modalId); }
-    close() { this.app.state.activeModal = null; this.render(null); }
-
-    render(modalId) {
+    constructor(appInstance, selector) { this.app = appInstance; this.container = document.querySelector(selector); this.template = document.getElementById('modal-template'); this.recurringItemTemplate = document.getElementById('recurring-item-template'); }
+    open(modalId) { this.app.state.activeModal = modalId; this.render(); }
+    close() { this.app.state.activeModal = null; this.render(); }
+    render() {
         this.container.innerHTML = '';
-        if (!modalId) return;
+        const { activeModal } = this.app.state;
+        if (!activeModal) return;
 
         const modalClone = this.template.content.cloneNode(true);
         const modalEl = modalClone.querySelector('.modal');
         const titleEl = modalClone.querySelector('.modal-title');
         const bodyEl = modalClone.querySelector('.modal-body');
 
-        modalEl.id = `modal-${modalId}`;
+        modalEl.id = `modal-${activeModal}`;
         modalEl.querySelector('.close-button').onclick = () => this.close();
 
-        if (modalId === 'add-tx') {
+        let contentHTML = '';
+        if (activeModal === 'add-tx') {
             titleEl.textContent = 'Nova Transação';
-            bodyEl.innerHTML = `<form id="transaction-form" style="padding-top: 20px;"><div class="form-group"><label for="date">Data</label><input type="date" id="date" required></div><div class="form-group"><label for="description">Descrição</label><input type="text" id="description" placeholder="Ex: Salário, Almoço" required></div><div class="form-group"><label for="amount">Valor</label><input type="number" step="0.01" id="amount" placeholder="Ex: 1500.00 ou -25.50" required></div><button type="submit">Adicionar</button></form>`;
+            contentHTML = `<form id="transaction-form" class="card"><div class="form-group"><label for="date">Data</label><input type="date" id="date" required></div><div class="form-group"><label for="description">Descrição</label><input type="text" id="description" placeholder="Ex: Salário, Almoço" required></div><div class="form-group"><label for="amount">Valor</label><input type="number" step="0.01" id="amount" placeholder="Ex: 1500.00 ou -25.50" required></div><div class="form-check"><input type="checkbox" id="is-recurring"><label for="is-recurring">É uma despesa recorrente?</label></div><div id="recurring-fields"><div class="form-group"><label for="recurring-day">Dia do Mês</label><input type="number" id="recurring-day" min="1" max="31" value="1"></div><div class="form-group"><label for="installments">Número de Parcelas</label><input type="number" id="installments" min="1" max="420" value="12"></div></div><button type="submit">Adicionar</button></form>`;
         }
-        if (modalId === 'data') {
-            titleEl.textContent = 'Dados e Configurações';
-            bodyEl.innerHTML = `
-                <div class="card"><h3>Exportar Dados</h3><p>Salve um backup de todos os seus dados.</p><button id="btn-export">Exportar JSON</button></div>
-                <div class="card"><h3>Importar Dados</h3><p style="color: var(--expense-color);">Atenção: A importação irá sobrescrever todos os dados existentes.</p><button id="btn-import" class="button-secondary">Importar JSON</button><input type="file" id="import-file-input" accept=".json" style="display: none;"></div>
-                <div class="card"><h3>Gastos Recorrentes</h3><div id="recurring-list"></div><form id="recurring-form" style="margin-top: 20px;"><div class="form-group"><label for="recurring-description">Nova Despesa</label><input type="text" id="recurring-description" placeholder="Ex: Aluguel" required></div><div class="form-group"><label for="recurring-amount">Valor</label><input type="number" step="0.01" id="recurring-amount" placeholder="Ex: -1200.00" required></div><div class="form-group"><label for="recurring-day">Dia do Mês</label><input type="number" id="recurring-day" min="1" max="31" value="1" required></div><div class="form-group"><label for="recurring-end-date">Data Final (Opcional)</label><input type="date" id="recurring-end-date"></div><button type="submit">Adicionar</button></form></div>`;
+        if (activeModal === 'transactions') {
+            titleEl.textContent = 'Transações';
+            contentHTML = `<div class="card"><div class="form-group"><input type="search" id="filter" placeholder="Filtrar por descrição..."></div></div><div id="monthly-transactions-container"></div>`;
         }
+        if (activeModal === 'settings') {
+            titleEl.textContent = 'Configurações';
+            contentHTML = `<div class="card"><h3>Exportar/Importar</h3><p>Salve ou restaure um backup de seus dados.</p><div style="display:flex; gap:10px; margin-top:10px;"><button id="btn-export">Exportar JSON</button><button id="btn-import" class="button-secondary">Importar JSON</button></div><input type="file" id="import-file-input" accept=".json" style="display: none;"></div><div class="card"><h3>Gastos Recorrentes</h3><p>Visualize e exclua regras de gastos recorrentes.</p><div id="recurring-list"></div></div><div class="card"><h3>Sobre</h3><p>Finix PWA V1.0.2.1</p><small>feito com ❤️ por Bruno Maia - <a href="https://github.com/BunoMaia" target="_blank">GitHub</a></small></div>`;
+        }
+
+        bodyEl.innerHTML = contentHTML;
 
         this.container.appendChild(modalClone);
         modalEl.style.display = 'block';
 
-        if (modalId === 'add-tx') document.getElementById('date').valueAsDate = new Date();
-        if (modalId === 'data') this.renderRecurringList(this.app.state.recurringExpenses);
+        if (activeModal === 'add-tx') {
+            document.getElementById('date').valueAsDate = new Date();
+            const isRecurringCheck = document.getElementById('is-recurring');
+            const recurringFields = document.getElementById('recurring-fields');
+            isRecurringCheck.addEventListener('change', () => {
+                recurringFields.classList.toggle('visible', isRecurringCheck.checked);
+            });
+        }
+        if (activeModal === 'settings') this.renderRecurringList();
+        if (activeModal === 'transactions') this.renderTransactionList();
     }
 
-    renderRecurringList(recurringExpenses) {
-        // ... (lógica de renderização da lista recorrente, igual à da classe DayDetailsView)
+    renderTransactionList(filter = '') {
+        const container = document.getElementById('monthly-transactions-container'); if(!container) return;
+        const filteredTx = this.app.state.transactions.filter(t => t.description.toLowerCase().includes(filter.toLowerCase()));
+        const grouped = filteredTx.reduce((acc, tx) => {
+            const month = new Date(tx.date).toLocaleDateString('pt-BR', { year: 'numeric', month: 'long' });
+            if (!acc[month]) acc[month] = { transactions: [], total: 0 };
+            acc[month].transactions.push(tx);
+            acc[month].total += tx.amount;
+            return acc;
+        }, {});
+        const sortedMonths = Object.keys(grouped).sort((a, b) => new Date(b.split(' de ').reverse().join('-')) - new Date(a.split(' de ').reverse().join('-')));
+        if (sortedMonths.length === 0) { container.innerHTML = `<div class="card"><p style="text-align: center;">Nenhuma transação encontrada.</p></div>`; return; }
+        let html = '';
+        sortedMonths.forEach(month => {
+            const { transactions, total } = grouped[month];
+            html += `<div class="month-group-header"><span class="month-name">${month}</span><span class="month-balance ${total >= 0 ? 'income' : 'expense'}">${formatCurrency(total)}</span></div>`;
+            html += `<div class="card"><ul class="transaction-list">`;
+            transactions.sort((a,b) => new Date(b.date) - new Date(a.date)).forEach(tx => {
+                html += `<li class="transaction-item"><div class="transaction-details">${tx.description} <small style="opacity:0.6">${new Date(tx.date).toLocaleDateString('pt-BR')}</small></div><div class="transaction-amount ${tx.amount >= 0 ? 'income' : 'expense'}">${formatCurrency(tx.amount)}</div></li>`;
+            });
+            html += `</ul></div>`;
+        });
+        container.innerHTML = html;
+    }
+    renderRecurringList() {
+        const listEl = document.getElementById('recurring-list'); if(!listEl) return;
+        listEl.innerHTML = '';
+        const expenses = this.app.state.recurringExpenses.sort((a,b) => a.day - b.day);
+        if (expenses.length === 0) { listEl.innerHTML = `<p style="opacity: 0.7; text-align: center; margin: 15px 0;">Nenhuma regra recorrente.</p>`; return; }
+        expenses.forEach(exp => {
+            const itemClone = this.recurringItemTemplate.content.cloneNode(true);
+            itemClone.querySelector('.recurring-description').textContent = `${exp.description} (Dia ${exp.day}) `;
+            itemClone.querySelector('.recurring-end-date').textContent = `${exp.appliedCount} de ${exp.installments} parcelas aplicadas.`;
+            const amountEl = itemClone.querySelector('.transaction-amount'); amountEl.textContent = formatCurrency(exp.amount); amountEl.classList.add('expense');
+            itemClone.querySelector('.delete-btn').dataset.id = exp.id;
+            listEl.appendChild(itemClone);
+        });
     }
 }
 
-/**
- * @class NavView
- * @description Gerencia os eventos da navegação inferior e do FAB.
- */
 class NavView {
-    constructor(appInstance) {
-        this.app = appInstance;
-        this.fab = document.getElementById('fab-add-tx');
-        this.navData = document.getElementById('nav-data');
-        this.navCalendar = document.getElementById('nav-calendar');
-    }
-
+    constructor(appInstance) { this.app = appInstance; this.fab = document.getElementById('fab-add-tx'); this.navTransactions = document.getElementById('nav-transactions'); this.navCalendar = document.getElementById('nav-calendar'); this.btnSettings = document.getElementById('btn-settings'); }
     bindEvents() {
         this.fab.onclick = () => this.app.modalManager.open('add-tx');
-        this.navData.onclick = () => this.app.modalManager.open('data');
-        this.navCalendar.onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
-
-        // Eventos delegados para formulários e botões dentro dos modais
+        this.navTransactions.onclick = () => this.app.modalManager.open('transactions');
+        this.btnSettings.onclick = () => this.app.modalManager.open('settings');
+        this.navCalendar.onclick = () => { this.app.modalManager.close(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
         document.body.addEventListener('submit', e => {
             e.preventDefault();
             if (e.target.id === 'transaction-form') {
                 const form = e.target;
-                this.app.addTransaction({date: new Date(form.date.value + 'T00:00:00-03:00'), description: form.description.value, amount: parseFloat(form.amount.value)});
-            }
-            if (e.target.id === 'recurring-form') {
-                const form = e.target;
-                this.app.addRecurringExpense({description: form['recurring-description'].value, amount: parseFloat(form['recurring-amount'].value), day: parseInt(form['recurring-day'].value), endDate: form['recurring-end-date'].value});
-                form.reset();
+                const isRecurring = form['is-recurring'].checked;
+                if (isRecurring) {
+                    this.app.addRecurringExpense({ description: form.description.value, amount: parseFloat(form.amount.value), day: parseInt(form['recurring-day'].value), installments: parseInt(form['installments'].value) });
+                } else {
+                    this.app.addTransaction({ date: new Date(form.date.value + 'T00:00:00-03:00'), description: form.description.value, amount: parseFloat(form.amount.value) });
+                }
             }
         });
-
         document.body.addEventListener('click', e => {
-             if (e.target.id === 'btn-export') { /* ... lógica de exportação ... */ }
+             if (e.target.id === 'btn-export') { const dataStr = JSON.stringify(this.app.state, null, 2); const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr); const link = document.createElement('a'); link.setAttribute('href', dataUri); link.setAttribute('download', `finix_backup_${new Date().toISOString().slice(0,10)}.json`); link.click(); }
              if (e.target.id === 'btn-import') document.getElementById('import-file-input').click();
-             const recurDelBtn = e.target.closest('.delete-btn');
-             if(recurDelBtn) this.app.deleteRecurringExpense(parseInt(recurDelBtn.dataset.id, 10));
+             const recurDelBtn = e.target.closest('.delete-btn'); if(recurDelBtn) this.app.deleteRecurringExpense(parseInt(recurDelBtn.dataset.id, 10));
         });
-
-        document.body.addEventListener('change', e => {
-            if (e.target.id === 'import-file-input') {
-                const file = e.target.files[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onload = (event) => this.app.importData(event.target.result);
-                reader.readAsText(file);
-            }
-        });
+        document.body.addEventListener('change', e => { if (e.target.id === 'import-file-input') { const file = e.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = (event) => this.app.importData(event.target.result); reader.readAsText(file); } });
+        document.body.addEventListener('input', e => { if (e.target.id === 'filter') this.app.modalManager.renderTransactionList(e.target.value); });
     }
 }
-
-// Funções utilitárias globais (escopo do módulo)
 const formatCurrency = (value) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
